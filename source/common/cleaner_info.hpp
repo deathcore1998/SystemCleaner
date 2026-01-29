@@ -34,6 +34,27 @@ namespace common
 		uint64_t id = IDGenerator::next();
 	};
 
+	struct PathAdditionResult
+	{
+		std::string errorMessage;
+		common::CleanOption option;
+
+		bool isSuccess() const
+		{
+			return errorMessage.empty();
+		}
+
+		static PathAdditionResult success( common::CleanOption opt )
+		{
+			return { "", std::move( opt ) };
+		}
+
+		static PathAdditionResult error( std::string msg )
+		{
+			return { std::move( msg ), {} };
+		}
+	};
+
 	enum class ItemType
 	{
 		NONE,

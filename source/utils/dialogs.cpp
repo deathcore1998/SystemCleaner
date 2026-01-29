@@ -4,7 +4,7 @@
 #include <shobjidl.h>
 #include <shlobj.h>
 
-std::optional< std::string > utils::openSelectionDialog()
+common::OptionalPath utils::openSelectionDialog( std::string_view title, DialogType type )
 {
     HRESULT hr = CoInitializeEx( NULL, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE );
     if ( FAILED( hr ) )
@@ -13,19 +13,19 @@ std::optional< std::string > utils::openSelectionDialog()
     }
 
     IFileOpenDialog* pFileOpen = nullptr;
-    hr = CoCreateInstance( CLSID_FileOpenDialog, NULL, CLSCTX_ALL,
-        IID_IFileOpenDialog, reinterpret_cast< void** >( &pFileOpen ) );
+    hr = CoCreateInstance( CLSID_FileOpenDialog, NULL, CLSCTX_ALL, IID_IFileOpenDialog, reinterpret_cast< void** >( &pFileOpen ) );
 
-    std::optional< std::string > result = std::nullopt;
+    common::OptionalPath result = std::nullopt;
 
     if ( SUCCEEDED( hr ) )
     {
         FILEOPENDIALOGOPTIONS options;
         pFileOpen->GetOptions( &options );
 
-        options |= FOS_PATHMUSTEXIST | FOS_FILEMUSTEXIST | FOS_FORCEFILESYSTEM;
+        options |= FOS_PATHMUSTEXIST | FOS_FORCEFILESYSTEM;
+        options |= type == DialogType::FILE ? FOS_FILEMUSTEXIST : FOS_PICKFOLDERS;
         pFileOpen->SetOptions( options );
-        pFileOpen->SetTitle( L"Select file or folder for cleaning" );
+        pFileOpen->SetTitle( std::wstring( title.begin(), title.end() ).c_str() );
 
         hr = pFileOpen->Show( NULL );
         if ( SUCCEEDED( hr ) )
@@ -40,9 +40,7 @@ std::optional< std::string > utils::openSelectionDialog()
 
                 if ( SUCCEEDED( hr ) )
                 {
-                    char path[ MAX_PATH ];
-                    WideCharToMultiByte( CP_UTF8, 0, pszFilePath, -1, path, MAX_PATH, NULL, NULL );
-                    result = std::string( path );
+                    result = fs::path( pszFilePath );
                     CoTaskMemFree( pszFilePath );
                 }
                 pItem->Release();
@@ -55,36 +53,40 @@ std::optional< std::string > utils::openSelectionDialog()
     return result;
 }
 
+common::OptionalPath utils::openFileDialog()
+{
+    return openSelectionDialog( "Select file to clean", DialogType::FILE );
+}
+
+common::OptionalPath utils::openFolderDialog()
+{
+    return openSelectionDialog( "Select folder to clean", DialogType::FOLDER );
+}
+
 utils::Result utils::openMessageBox( std::string_view title, std::string_view message, ButtonFlag buttons, BoxType type )
 {
     UINT winButtons = 0;
 
-    if ( ( buttons & BUTTON_OK ) && ( buttons & BUTTON_CANCEL ) )
+    switch ( static_cast< uint32_t >( buttons ) )
     {
-        winButtons = MB_OKCANCEL;
-    }
-    else if ( ( buttons & BUTTON_YES ) && ( buttons & BUTTON_NO ) )
-    {
-        if ( buttons & BUTTON_CANCEL )
-        {
+        case ( BUTTON_YES | BUTTON_NO | BUTTON_CANCEL ):
             winButtons = MB_YESNOCANCEL;
-        }
-        else
-        {
+            break;
+        case ( BUTTON_YES | BUTTON_NO ):
             winButtons = MB_YESNO;
-        }
-    }
-    else if ( buttons & BUTTON_OK )
-    {
-        winButtons = MB_OK;
-    }
-    else if ( buttons & BUTTON_YES )
-    {
-        winButtons = MB_YESNO;
-    }
-    else
-    {
-        winButtons = MB_OK;
+            break;
+        case ( BUTTON_OK | BUTTON_CANCEL ):
+            winButtons = MB_OKCANCEL;
+            break;
+        case BUTTON_OK:
+            winButtons = MB_OK;
+            break;
+        case BUTTON_YES:
+            winButtons = MB_YESNO;
+            break;
+        default:
+            winButtons = MB_OK;
+            break;
     }
 
     UINT winIcon = 0;

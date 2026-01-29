@@ -1,12 +1,22 @@
 #pragma once
 
-#include <optional>
-#include <string>
+#include "common/types.hpp"
+
+namespace fs = std::filesystem;
 
 namespace utils
 {
+    enum class DialogType
+    {
+        FILE,
+        FOLDER,
+    };
+
 	// blocking main thread
-	std::optional< std::string > openSelectionDialog(); 
+    common::OptionalPath openSelectionDialog( std::string_view title, DialogType type );
+
+    common::OptionalPath openFileDialog();
+    common::OptionalPath openFolderDialog();
 
     enum ButtonFlag : uint32_t
     {
@@ -15,6 +25,11 @@ namespace utils
         BUTTON_YES = 0x0004,
         BUTTON_NO = 0x0008,
     };
+
+    constexpr ButtonFlag operator|( ButtonFlag a, ButtonFlag b )
+    {
+        return static_cast< ButtonFlag >( static_cast< uint32_t >( a ) | static_cast< uint32_t >( b ) );
+    }
 
     enum BoxType : uint32_t
     {

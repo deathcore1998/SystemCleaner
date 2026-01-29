@@ -2,10 +2,13 @@
 
 #include <windows.h>
 
-#include "common/cleaner_info.hpp"
+#include <fstream>
+#include <ranges>
+
 #include "common/constants.hpp"
 #include "core/task_manager.hpp"
 #include "utils/filesystem.hpp"
+#include "utils/path_validator.hpp"
 
 
 namespace
@@ -15,6 +18,20 @@ namespace
 	constexpr std::string_view HISTORY = "History";
 
 	constexpr float EPS = 0.001f;
+
+	const fs::path CONFIG_DIR = utils::FileSystem::instance().getRoamingAppDataDir() / "SystemCleaner";
+	const fs::path SAVING_PATH = CONFIG_DIR / "custom_paths.bin";
+
+	inline std::string pathToString( const fs::path& path )
+	{
+		std::u8string u8str = path.u8string();
+		return std::string( reinterpret_cast< const char* >( u8str.c_str() ) );
+	}
+}
+
+core::SystemCleaner::~SystemCleaner()
+{
+	fini();
 }
 
 common::Summary core::SystemCleaner::getSummary()
@@ -24,7 +41,7 @@ common::Summary core::SystemCleaner::getSummary()
 	return m_summary;
 }
 
-void core::SystemCleaner::clear( const CleaningItems& cleanTargets )
+void core::SystemCleaner::clear( const common::CleaningItems& cleanTargets )
 {
 	using clock = std::chrono::steady_clock;
 	const auto startTime = clock::now();
@@ -38,7 +55,7 @@ void core::SystemCleaner::clear( const CleaningItems& cleanTargets )
 		// Awaiting analysis
 		while ( TaskManager::instance().countActiveTasks() > 1 )
 		{
-			m_progress = ( float ) TaskManager::instance().countActiveTasks() / ( float ) countAnalysTasks;
+			m_progress = ( float ) TaskManager::instance().countActiveTasks() / ( float ) m_countAnalysTasks;
 		}
 		
 		// Start cleaning
@@ -64,7 +81,7 @@ void core::SystemCleaner::clear( const CleaningItems& cleanTargets )
 	} );
 }
 
-void core::SystemCleaner::analysis( const CleaningItems& cleanTargets )
+void core::SystemCleaner::analysis( const common::CleaningItems& cleanTargets )
 {
 	using clock = std::chrono::steady_clock;
 
@@ -75,7 +92,7 @@ void core::SystemCleaner::analysis( const CleaningItems& cleanTargets )
 	{
 		while ( TaskManager::instance().countActiveTasks() > 1 )
 		{
-			m_progress = ( float ) TaskManager::instance().countActiveTasks() / ( float ) countAnalysTasks;
+			m_progress = ( float ) TaskManager::instance().countActiveTasks() / ( float ) m_countAnalysTasks;
 		}
 
 		const auto endTime = clock::now();
@@ -101,16 +118,58 @@ float core::SystemCleaner::getCurrentProgress()
 	return m_progress;
 }
 
-core::CleaningItems core::SystemCleaner::collectCleaningItems()
+common::CleaningItems core::SystemCleaner::collectCleaningItems()
 {
-	CleaningItems cleaningItems;
-	initializeBrowserData( cleaningItems );
-	initializeSystemTempData( cleaningItems );
+	common::CleaningItems cleaningItems;
+	initBrowserData( cleaningItems );
+	initSystemTempData( cleaningItems );
+
+	initCustomPaths( cleaningItems );
 
 	return cleaningItems;
 }
 
-void core::SystemCleaner::initializeBrowserData( CleaningItems& cleaningItems )
+common::PathAdditionResult core::SystemCleaner::addCustomPath( const fs::path& path )
+{
+	if ( common::OptionalString error = utils::path::validate( path ) )
+	{
+		return common::PathAdditionResult::error( std::move( *error ) );
+	}
+
+	for ( const auto& customPath : m_customPathCache | std::ranges::views::values )
+	{
+		try
+		{
+			if ( fs::equivalent( path, customPath ) )
+			{
+				return common::PathAdditionResult::error( "Duplicated path" );
+			}
+		}
+		catch ( const std::exception& ) {}
+	}
+
+	common::CleanOption option { .displayName = pathToString( path.filename().string() ) };
+	m_customPathCache[ option.id ] = path;
+
+	return common::PathAdditionResult::success( std::move( option ) );
+}
+
+void core::SystemCleaner::removeCustomPath( uint64_t id )
+{
+	m_customPathCache.erase( id );
+}
+
+common::OptionalString core::SystemCleaner::getFullPath( uint64_t id )
+{
+	if ( m_customPathCache.contains( id ) )
+	{
+		return pathToString( m_customPathCache[ id ].string() );
+	}
+
+	return std::nullopt;
+}
+
+void core::SystemCleaner::initBrowserData( common::CleaningItems& cleaningItems )
 {
 	const fs::path local = utils::FileSystem::instance().getLocalAppDataDir();
 	const fs::path roaming = utils::FileSystem::instance().getRoamingAppDataDir();
@@ -167,7 +226,7 @@ void core::SystemCleaner::initializeBrowserData( CleaningItems& cleaningItems )
 				{
 					continue;
 				}
-
+				
 				const fs::path profilePath = entry.path();
 				addBrowserInfo( common::MOZILLA_FIREFOX, profilePath, 
 								"cache2\\entries", "cookies.sqlite", "places.sqlite" );
@@ -194,7 +253,7 @@ void core::SystemCleaner::initializeBrowserData( CleaningItems& cleaningItems )
 	}
 }
 
-void core::SystemCleaner::initializeSystemTempData( CleaningItems& cleaningItems )
+void core::SystemCleaner::initSystemTempData( common::CleaningItems& cleaningItems )
 {
 	auto& fs = utils::FileSystem::instance();
 
@@ -225,7 +284,62 @@ void core::SystemCleaner::initializeSystemTempData( CleaningItems& cleaningItems
 	} );
 }
 
-void core::SystemCleaner::analysisTargets( const CleaningItems& cleaningItems )
+void core::SystemCleaner::initCustomPaths( common::CleaningItems& cleaningItems )
+{
+	common::CleaningItem customItem( "Custom paths", common::ItemType::CUSTOM_PATH );
+	
+	if ( std::ifstream input( SAVING_PATH, std::ios::binary ); input )
+	{
+		uint32_t size = 0;
+		while ( input.read( reinterpret_cast< char* > ( &size ), sizeof( size ) ) )
+		{
+			if ( size == 0 || size > 10000 )
+			{
+				break;
+			}
+
+			std::string strPath( size, '\0' );
+			if ( !input.read( &strPath[ 0 ], size ) )
+			{
+				break;
+			}
+
+			common::PathAdditionResult result = addCustomPath( std::move( strPath ) );
+			if ( result.isSuccess() )
+			{
+				customItem.cleanOptions.push_back( std::move( result.option ) );
+			}			
+		}
+	}
+
+	cleaningItems.push_back( customItem );
+}
+
+void core::SystemCleaner::fini()
+{
+	if ( m_customPathCache.empty() )
+	{
+		if ( fs::exists( SAVING_PATH ) )
+		{
+			fs::remove( SAVING_PATH );
+		}
+		return;
+	}
+
+	fs::create_directories( CONFIG_DIR );
+
+	std::ofstream output( SAVING_PATH, std::ios::binary );
+	for ( const auto& customPath : m_customPathCache | std::ranges::views::values )
+	{
+		std::string pathStr = customPath.string();
+		const uint32_t size = static_cast< uint32_t >( pathStr.size() );
+
+		output.write( reinterpret_cast< const char* > ( &size ), sizeof( size ) );
+		output.write( pathStr.c_str(), size );
+	}
+}
+
+void core::SystemCleaner::analysisTargets( const common::CleaningItems& cleaningItems )
 {
 	resetData();
 	m_currentState = common::CleanerState::ANALYZING;
@@ -236,7 +350,7 @@ void core::SystemCleaner::analysisTargets( const CleaningItems& cleaningItems )
 		{
 			continue;
 		}
-		++countAnalysTasks;
+		++m_countAnalysTasks;
 		
 		TaskManager::instance().addTask( [ this, cleaningItem ] ()
 		{
@@ -287,6 +401,7 @@ core::DirInfo core::SystemCleaner::processPath( const fs::path& pathDir, bool de
 
 void core::SystemCleaner::analysisOptions( const common::CleaningItem& cleaningItem )
 {
+	const bool isCustomItem = cleaningItem.itemType == common::ItemType::CUSTOM_PATH;
 	for ( const common::CleanOption& cleanOption : cleaningItem.cleanOptions )
 	{
 		if ( !cleanOption.enabled )
@@ -312,12 +427,13 @@ void core::SystemCleaner::analysisOptions( const common::CleaningItem& cleaningI
 			continue;
 		}
 
-		const core::DirInfo dirInfo = processPath( m_cleanPathCache[ cleanOption.id ] );
+		const fs::path& pathDir = isCustomItem ? m_customPathCache[ cleanOption.id ] : m_cleanPathCache[ cleanOption.id ];
+		const core::DirInfo dirInfo = processPath( pathDir );
 		accumulateResult( cleaningItem.name, cleanOption.displayName, dirInfo );
 	}
 }
 
-void core::SystemCleaner::clearTargets( const CleaningItems& cleaningItems )
+void core::SystemCleaner::clearTargets( const common::CleaningItems& cleaningItems )
 {
 	resetData();
 	m_currentState = common::CleanerState::CLEANING;
@@ -338,6 +454,7 @@ void core::SystemCleaner::clearTargets( const CleaningItems& cleaningItems )
 
 void core::SystemCleaner::cleanOptions( const common::CleaningItem& cleaningItem )
 {
+	const bool isCustomItem = cleaningItem.itemType == common::ItemType::CUSTOM_PATH;
 	for ( const common::CleanOption& cleanOption : cleaningItem.cleanOptions )
 	{
 		if ( !cleanOption.enabled )
@@ -362,8 +479,8 @@ void core::SystemCleaner::cleanOptions( const common::CleaningItem& cleaningItem
 			}
 			continue;
 		}
-
-		const core::DirInfo dirInfo = processPath( m_cleanPathCache[ cleanOption.id ], true );
+		const fs::path& pathDir = isCustomItem ? m_customPathCache[ cleanOption.id ] : m_cleanPathCache[ cleanOption.id ];
+		const core::DirInfo dirInfo = processPath( pathDir, true );
 		accumulateResult( cleaningItem.name, cleanOption.displayName, dirInfo );
 	}
 }
@@ -386,6 +503,5 @@ void core::SystemCleaner::resetData()
 	}
 
 	m_cleanedFiles = 0;
-
-	countAnalysTasks = 0;
+	m_countAnalysTasks = 0;
 }

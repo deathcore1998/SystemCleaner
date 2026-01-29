@@ -1,5 +1,6 @@
 #include "cleaner_panel.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <ranges>
 #include <string>
@@ -9,21 +10,23 @@
 #include "common/constants.hpp"
 #include "common/scoped_guards.hpp"
 
+#include "utils/custom_widgets.hpp"
 #include "utils/dialogs.hpp"
 
 namespace
 {
-	constexpr float ICON_SIZE = 16.f;
 	constexpr float BUTTON_HEIGHT = 30.f;
 	constexpr float VERTICAL_OFFSET = 20.f;
 	constexpr float KILOBYTE = 1024.0f;
 	constexpr float MEGABYTE = KILOBYTE * KILOBYTE;
+	constexpr ImVec2 SMALL_ICON_SIZE = ImVec2( 16.f, 16.f );
+	constexpr ImVec2 BIG_ICON_SIZE = ImVec2( 24.f, 24.f );
 
 	constexpr ImU32 GREEN_COLOR = IM_COL32( 0, 200, 0, 255 );
 
-	std::string separateString( const std::string& str )
+	inline std::string separateString( std::string_view str )
 	{
-		std::string result = str;
+		std::string result( str );
 		for ( int i = result.size() - 3; i > 0; i -= 3 )
 		{
 			result.insert( i, " " );
@@ -31,7 +34,7 @@ namespace
 		return result;
 	}
 
-	void rightAlignedText( const std::string& text )
+	inline void rightAlignedText( const std::string& text )
 	{
 		const float regionAvail = ImGui::GetContentRegionAvail().x;
 		const float textSize = ImGui::CalcTextSize( text.c_str() ).x;
@@ -47,6 +50,7 @@ gui::CleanerPanel::CleanerPanel()
 	{
 		cleanTarget.textureID = m_textureManager.getTexture( cleanTarget.name );
 	}
+	m_customIndex = m_cleaningItems.size() - 1;
 }
 
 void gui::CleanerPanel::draw()
@@ -63,13 +67,13 @@ void gui::CleanerPanel::draw()
 	if ( auto table = ImGui::Table( "CleanerTable", 2, tableFlags, tableSize ) )
 	{
 		constexpr ImGuiTableColumnFlags columnFlags = ImGuiTableColumnFlags_NoResize | ImGuiTableColumnFlags_WidthFixed;
-		ImGui::TableSetupColumn( "Settings", columnFlags, tableSize.x * 0.25f );
-		ImGui::TableSetupColumn( "Main", columnFlags, tableSize.x * 0.75f );
+		ImGui::TableSetupColumn( "Settings", columnFlags, tableSize.x * 0.3f );
+		ImGui::TableSetupColumn( "Main", columnFlags, tableSize.x * 0.7f );
 
 		ImGui::TableNextColumn();
 		{
 			ImGui::Child options( "OptionsColumn" );
-			drawOptions();
+			drawCleaningItems();
 		}
 
 		ImGui::TableNextColumn();
@@ -139,7 +143,7 @@ void gui::CleanerPanel::drawMain()
 	}	
 }
 
-void gui::CleanerPanel::drawOptions()
+void gui::CleanerPanel::drawCleaningItems()
 {
 	const bool isActiveCustomContext = m_activeContext == ActiveContext::CUSTOM;
 	if ( isActiveCustomContext )
@@ -147,45 +151,94 @@ void gui::CleanerPanel::drawOptions()
 		drawCustomPathsMenu();
 	}
 
-	for ( common::CleaningItem& cleanTarget : m_cleaningItems )
+	for ( common::CleaningItem& cleanItem : m_cleaningItems )
 	{
-		const bool isBrowserOption = m_activeContext == ActiveContext::BROWSER && cleanTarget.itemType == common::ItemType::BROWSER;
+		const bool isBrowserOption = m_activeContext == ActiveContext::BROWSER && cleanItem.itemType == common::ItemType::BROWSER;
 		const bool isTempOrSystemOption = m_activeContext == ActiveContext::TEMP_AND_SYSTEM &&
-			( cleanTarget.itemType == common::ItemType::TEMP || cleanTarget.itemType == common::ItemType::SYSTEM );
-		const bool isCustomOption = isActiveCustomContext && cleanTarget.itemType == common::ItemType::CUSTOM_PATH;
+			( cleanItem.itemType == common::ItemType::TEMP || cleanItem.itemType == common::ItemType::SYSTEM );
+		const bool isCustomOption = isActiveCustomContext && cleanItem.itemType == common::ItemType::CUSTOM_PATH;
 
-		if ( isBrowserOption || isTempOrSystemOption || isCustomOption )
+		if ( isBrowserOption || isTempOrSystemOption )
 		{
-			drawOption( cleanTarget );
+			drawOptions( cleanItem );
+		}
+		else if ( isCustomOption )
+		{
+			drawCustomOptions( cleanItem );
 		}
 	}
 }
 
 void gui::CleanerPanel::drawCustomPathsMenu()
 {
-	if ( ImGui::Button( "Add path" ) )
+	auto processingPath = [ & ]( common::OptionalPath& path )
 	{
-		std::optional< std::string > result = utils::openSelectionDialog();
-		if ( result.has_value() && !result.value().empty() )
+		if ( path.has_value() && !path.value().empty() )
 		{
-			addCustomPath( result.value() );
+			common::PathAdditionResult result = m_systemCleaner.addCustomPath( path.value() );
+			if ( result.isSuccess() )
+			{
+				m_cleaningItems[ m_customIndex ].cleanOptions.push_back( std::move( result.option ) );
+			}
+			else
+			{
+				utils::openMessageBox( "Warning", result.errorMessage, utils::ButtonFlag::BUTTON_OK, utils::BoxType::TYPE_WARNING );
+			}
+		}
+	};
+
+	if ( ImGui::ImageButton( "Custom file", m_textureManager.getTexture( "Add File" ), BIG_ICON_SIZE ) )
+	{
+		common::OptionalPath path = utils::openFileDialog();
+		processingPath( path );
+	}
+	utils::Tooltip( "Add file path" );
+
+	ImGui::SameLine();
+	if ( ImGui::ImageButton( "Custom folder", m_textureManager.getTexture( "Add Folder" ), BIG_ICON_SIZE ) )
+	{
+		common::OptionalPath path = utils::openFolderDialog();
+		processingPath( path );
+	}
+	utils::Tooltip( "Add folder path" );
+
+	ImGui::SameLine();
+	if ( ImGui::ImageButton( "Remove custom paths", m_textureManager.getTexture( "Remove" ), BIG_ICON_SIZE ) )
+	{
+		if ( !m_cleaningItems[ m_customIndex ].cleanOptions.empty() )
+		{
+			const utils::ButtonFlag flags = utils::ButtonFlag::BUTTON_YES | utils::ButtonFlag::BUTTON_NO;
+			const utils::Result messageBoxResult = utils::openMessageBox( "Warning", "Do you really want to delete all user paths?", flags, utils::BoxType::TYPE_WARNING );
+			if ( messageBoxResult == utils::Result::RESULT_YES )
+			{
+				auto& options = m_cleaningItems[ m_customIndex ].cleanOptions;
+				options.erase( std::remove_if( options.begin(), options.end(),
+				[&] ( const common::CleanOption& opt )
+				{
+					if ( opt.enabled )
+					{
+						m_systemCleaner.removeCustomPath( opt.id );
+						return true;
+					}
+					return false;
+				} ), options.end() );
+			}
 		}
 	}
-
-	ImGui::SameLine();
-	if ( ImGui::Button( "Remove all" ) )
-	{
-
-	}
+	utils::Tooltip( "Remove enabled custom paths" );
 }
 
-void gui::CleanerPanel::drawOption( common::CleaningItem& cleaningItem )
+void gui::CleanerPanel::drawOptions( common::CleaningItem& cleaningItem )
 {
 	ImGui::IDGuard guard( cleaningItem.name );
-	ImGui::Image( m_textureManager.getTexture( cleaningItem.name ), ImVec2( ICON_SIZE, ICON_SIZE ) );
-	const float checkboxOffset = ImGui::GetCursorPosX();
+	const unsigned int textureId = m_textureManager.getTexture( cleaningItem.name );
+	if ( textureId != ImTextureID_Invalid )
+	{
+		ImGui::Image( textureId, SMALL_ICON_SIZE );
+		ImGui::SameLine();
+	}
 
-	ImGui::SameLine();
+	const float checkboxOffset = ImGui::GetCursorPosX();
 	ImGui::AlignTextToFramePadding();
 	ImGui::Text( cleaningItem.name.c_str() );
 	{
@@ -194,6 +247,31 @@ void gui::CleanerPanel::drawOption( common::CleaningItem& cleaningItem )
 		{
 			ImGui::Checkbox( cleanOption.displayName.c_str(), &cleanOption.enabled );
 		}
+	}
+}
+
+void gui::CleanerPanel::drawCustomOptions( common::CleaningItem& cleaningItem )
+{
+	std::vector< common::CleanOption >& cleanOptions = cleaningItem.cleanOptions;
+	for ( auto& [ enabled, displayName, id ] : cleanOptions )
+	{
+		ImGui::IDGuard guard( id );
+
+		ImGui::Checkbox( displayName.c_str(), &enabled);
+		const common::OptionalString fullPath = m_systemCleaner.getFullPath( id );
+		if ( fullPath.has_value() && !fullPath.value().empty() )
+		{
+			utils::Tooltip( fullPath.value().c_str() );
+		}
+	}
+
+	if ( ImGui::IsKeyPressed( ImGuiKey_Delete ) )
+	{
+		cleaningItem.cleanOptions.erase( std::remove_if( cleanOptions.begin(), cleanOptions.end(), 
+		[ & ] ( const common::CleanOption& opt )
+		{
+			return opt.enabled;
+		} ), cleanOptions.end() );
 	}
 }
 
@@ -241,7 +319,7 @@ void gui::CleanerPanel::drawResultCleaningOrAnalysis()
 			
 			if ( result.textureID != ImTextureID_Invalid )
 			{
-				ImGui::Image( result.textureID, ImVec2( ICON_SIZE, ICON_SIZE ) );
+				ImGui::Image( result.textureID, SMALL_ICON_SIZE );
 				ImGui::SameLine();
 			}
 			ImGui::Text( "%s - %s", result.propertyName.c_str(), result.categoryName.c_str() );
@@ -255,11 +333,6 @@ void gui::CleanerPanel::drawResultCleaningOrAnalysis()
 			rightAlignedText( cleanedFiles );
 		}
 	}
-}
-
-void gui::CleanerPanel::addCustomPath( std::string newCustomPath )
-{
-
 }
 
 void gui::CleanerPanel::prepareResultsForDisplay()

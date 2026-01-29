@@ -24,6 +24,11 @@ namespace ImGui
 			ImGui::PushID( id.c_str() );
 		}
 
+		IDGuard( uint64_t id )
+		{
+			ImGui::PushID( id );
+		}
+
 		~IDGuard()
 		{
 			ImGui::PopID();
@@ -86,9 +91,9 @@ namespace ImGui
 	class Child
 	{
 	public:
-		Child( std::string_view strId, const ImVec2& size = ImVec2( 0.0f, 0.0f ) )
+		Child( std::string_view strId, const ImVec2& size = ImVec2( 0.0f, 0.0f ), ImGuiChildFlags childFlags = 0 )
 		{
-			m_open = ImGui::BeginChild( strId.data(), size );
+			m_open = ImGui::BeginChild( strId.data(), size, childFlags );
 		}
 
 		~Child()

@@ -9,8 +9,7 @@
 #include <vector>
 
 #include "common/cleaner_info.hpp"
-
-namespace fs = std::filesystem;
+#include "common/types.hpp"
 
 namespace core
 {
@@ -20,29 +19,36 @@ namespace core
 		uint64_t countFile = 0;
 	};
 
-	using CleaningItems = std::vector< common::CleaningItem >;
-
 	class SystemCleaner
 	{
 	public:
+		~SystemCleaner();
+
 		[[nodiscard]] common::Summary getSummary();
 
-		void clear( const CleaningItems& cleanTargets );
-		void analysis( const CleaningItems& cleanTargets );
+		void clear( const common::CleaningItems& cleanTargets );
+		void analysis( const common::CleaningItems& cleanTargets );
 
 		common::CleanerState getCurrentState();
 		float getCurrentProgress();
 
-		[[nodiscard]] CleaningItems collectCleaningItems();
+		[[nodiscard]] common::CleaningItems collectCleaningItems();
+
+		[[nodiscard]] common::PathAdditionResult addCustomPath( const fs::path& path );
+		void removeCustomPath( uint64_t id );
+		[[nodiscard]] common::OptionalString getFullPath( uint64_t id );
 	private:
-		void initializeBrowserData( CleaningItems& cleaningItems );
-		void initializeSystemTempData( CleaningItems& cleaningItems );
+		void initBrowserData( common::CleaningItems& cleaningItems );
+		void initSystemTempData( common::CleaningItems& cleaningItems );
+		void initCustomPaths( common::CleaningItems& cleaningItems );
+
+		void fini();
 
 		[[nodiscard]] DirInfo processPath( const fs::path& pathDir, bool deleteFiles = false );
 
-		void analysisTargets( const CleaningItems& cleaningItems );
+		void analysisTargets( const common::CleaningItems& cleaningItems );
 		void analysisOptions( const common::CleaningItem& cleaningItem );
-		void clearTargets( const CleaningItems& cleaningItems );
+		void clearTargets( const common::CleaningItems& cleaningItems );
 		void cleanOptions( const common::CleaningItem& cleaningItem );
 
 		void accumulateResult( std::string itemName, std::string category, const core::DirInfo dirInfo );
@@ -51,12 +57,13 @@ namespace core
 
 		std::atomic< uint64_t > m_cleanedFiles { 0 };
 		std::atomic< float > m_progress { 0.f };
-		std::atomic< size_t > countAnalysTasks { 0 };
+		std::atomic< size_t > m_countAnalysTasks { 0 };
 
 		std::mutex m_summaryMutex;
 		common::Summary m_summary;
 
 		std::unordered_map< uint64_t, fs::path > m_cleanPathCache;
+		std::unordered_map< uint64_t, fs::path > m_customPathCache;
 		std::atomic < common::CleanerState > m_currentState = common::CleanerState::IDLE;
 	};
 }

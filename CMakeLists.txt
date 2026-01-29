@@ -88,15 +88,19 @@ target_sources(SystemCleaner PRIVATE
 	${CORE_DIR}/window.cpp
 	${CORE_DIR}/window.hpp
 
+	${UTILS_DIR}/custom_widgets.hpp
 	${UTILS_DIR}/dialogs.cpp
 	${UTILS_DIR}/dialogs.hpp
 	${UTILS_DIR}/filesystem.cpp
 	${UTILS_DIR}/filesystem.hpp
+	${UTILS_DIR}/path_validator.cpp
+	${UTILS_DIR}/path_validator.hpp
 
 	${COMMON_DIR}/cleaner_info.hpp
 	${COMMON_DIR}/constants.hpp
 	${COMMON_DIR}/id_generator.hpp
 	${COMMON_DIR}/scoped_guards.hpp
+	${COMMON_DIR}/types.hpp
 )
 
 target_link_libraries(SystemCleaner PRIVATE
