@@ -29,14 +29,19 @@ namespace gui
 		void drawTabBar();
 		void drawMain();
 
+		void drawBulkCheckboxButtons();
+		void drawCustomPathsMenu();
+		void drawCleaningItemsHeader();
+
 		void drawCleaningItems();
 		void drawOptions( common::CleaningItem& cleaningItem );
 		void drawCustomOptions( common::CleaningItem& cleaningItem );
-		void drawCustomPathsMenu();
 		void drawProgress();
 		void drawResultCleaningOrAnalysis();
 
 		void prepareResultsForDisplay();
+
+		bool isItemVisible( const common::CleaningItem& item ) const;
 
 		core::SystemCleaner m_systemCleaner;
 		common::CleaningItems m_cleaningItems;

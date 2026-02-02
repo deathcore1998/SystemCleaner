@@ -73,6 +73,9 @@ void gui::CleanerPanel::draw()
 		ImGui::TableNextColumn();
 		{
 			ImGui::Child options( "OptionsColumn" );
+
+			drawCleaningItemsHeader();
+
 			drawCleaningItems();
 		}
 
@@ -143,28 +146,55 @@ void gui::CleanerPanel::drawMain()
 	}	
 }
 
+void gui::CleanerPanel::drawBulkCheckboxButtons()
+{
+	auto toggleAllOptions = [ this ]( bool enable )
+	{
+		for ( common::CleaningItem& cleanItem : m_cleaningItems )
+		{
+			if ( !isItemVisible( cleanItem ) )
+			{
+				continue;
+			}
+
+			for ( common::CleanOption& cleanOption : cleanItem.cleanOptions )
+			{
+				cleanOption.enabled = enable;
+			}
+		}
+	};
+
+	if ( ImGui::ImageButton( "Enable all visible items", m_textureManager.getTexture( "Enable All" ), BIG_ICON_SIZE ) )
+	{
+		toggleAllOptions( true );
+	}
+	utils::Tooltip( "Enable all visible items" );
+
+	ImGui::SameLine();
+	if ( ImGui::ImageButton( "Disable all visible items", m_textureManager.getTexture( "Disable All" ), BIG_ICON_SIZE ) )
+	{
+		toggleAllOptions( false );
+	}
+	utils::Tooltip( "Disable all visible items" );
+}
+
 void gui::CleanerPanel::drawCleaningItems()
 {
-	const bool isActiveCustomContext = m_activeContext == ActiveContext::CUSTOM;
-	if ( isActiveCustomContext )
-	{
-		drawCustomPathsMenu();
-	}
-
 	for ( common::CleaningItem& cleanItem : m_cleaningItems )
 	{
-		const bool isBrowserOption = m_activeContext == ActiveContext::BROWSER && cleanItem.itemType == common::ItemType::BROWSER;
-		const bool isTempOrSystemOption = m_activeContext == ActiveContext::TEMP_AND_SYSTEM &&
-			( cleanItem.itemType == common::ItemType::TEMP || cleanItem.itemType == common::ItemType::SYSTEM );
-		const bool isCustomOption = isActiveCustomContext && cleanItem.itemType == common::ItemType::CUSTOM_PATH;
-
-		if ( isBrowserOption || isTempOrSystemOption )
+		if ( !isItemVisible( cleanItem ) )
 		{
-			drawOptions( cleanItem );
+			continue;
 		}
-		else if ( isCustomOption )
+
+		const bool isCustomItem = cleanItem.itemType == common::ItemType::CUSTOM_PATH;
+		if ( isCustomItem )
 		{
 			drawCustomOptions( cleanItem );
+		}
+		else
+		{
+			drawOptions( cleanItem );
 		}
 	}
 }
@@ -226,6 +256,17 @@ void gui::CleanerPanel::drawCustomPathsMenu()
 		}
 	}
 	utils::Tooltip( "Remove enabled custom paths" );
+}
+
+void gui::CleanerPanel::drawCleaningItemsHeader()
+{
+	drawBulkCheckboxButtons();
+
+	if ( m_activeContext == ActiveContext::CUSTOM )
+	{
+		ImGui::SameLine();
+		drawCustomPathsMenu();
+	}
 }
 
 void gui::CleanerPanel::drawOptions( common::CleaningItem& cleaningItem )
@@ -352,4 +393,18 @@ void gui::CleanerPanel::prepareResultsForDisplay()
 	{
 		result.textureID = m_textureManager.getTexture( result.propertyName );
 	}
+}
+
+bool gui::CleanerPanel::isItemVisible( const common::CleaningItem& item ) const
+{
+	switch ( m_activeContext )
+	{
+		case ActiveContext::BROWSER:
+			return item.itemType == common::ItemType::BROWSER;
+		case ActiveContext::TEMP_AND_SYSTEM:
+			return item.itemType == common::ItemType::TEMP || item.itemType == common::ItemType::SYSTEM;
+		case ActiveContext::CUSTOM:
+			return item.itemType == common::ItemType::CUSTOM_PATH;
+	}
+	return false;
 }
