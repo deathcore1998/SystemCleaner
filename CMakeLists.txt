@@ -4,6 +4,8 @@ project(SystemCleaner LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+set(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} PROPERTY VS_STARTUP_PROJECT SystemCleaner)
+
 include(FetchContent)
 
 FetchContent_Declare(
@@ -46,7 +48,7 @@ add_executable(SystemCleaner WIN32
 )
 
 if (MSVC)
-    target_link_options(SystemCleaner PRIVATE "/ENTRY:mainCRTStartup")
+	target_link_options(SystemCleaner PRIVATE "/ENTRY:mainCRTStartup")
 endif()
 
 set(GUI_DIR ${CMAKE_SOURCE_DIR}/source/gui)
@@ -67,18 +69,24 @@ target_include_directories(SystemCleaner PRIVATE
 	${stb_SOURCE_DIR}
 )
 
-target_sources(SystemCleaner PRIVATE
+set(GUI_FILES
 	${GUI_DIR}/gui.cpp
 	${GUI_DIR}/gui.hpp
+)
 
+set(APP_FILES
 	${APP_DIR}/app.cpp
 	${APP_DIR}/app.hpp
+)
 
+set(WIDGETS_FILES 
 	${WIDGETS_DIR}/title_bar.cpp
 	${WIDGETS_DIR}/title_bar.hpp
 	${WIDGETS_DIR}/cleaner_panel.cpp
 	${WIDGETS_DIR}/cleaner_panel.hpp
+)
 
+set(CORE_FILES
 	${CORE_DIR}/system_cleaner.cpp
 	${CORE_DIR}/system_cleaner.hpp
 	${CORE_DIR}/task_manager.cpp
@@ -87,7 +95,9 @@ target_sources(SystemCleaner PRIVATE
 	${CORE_DIR}/texture_manager.hpp
 	${CORE_DIR}/window.cpp
 	${CORE_DIR}/window.hpp
+)
 
+set(UTILS_FILES
 	${UTILS_DIR}/custom_widgets.hpp
 	${UTILS_DIR}/dialogs.cpp
 	${UTILS_DIR}/dialogs.hpp
@@ -95,12 +105,30 @@ target_sources(SystemCleaner PRIVATE
 	${UTILS_DIR}/filesystem.hpp
 	${UTILS_DIR}/path_validator.cpp
 	${UTILS_DIR}/path_validator.hpp
+)
 
+set(COMMON_FILES 
 	${COMMON_DIR}/cleaner_info.hpp
 	${COMMON_DIR}/constants.hpp
 	${COMMON_DIR}/id_generator.hpp
 	${COMMON_DIR}/scoped_guards.hpp
 	${COMMON_DIR}/types.hpp
+)
+
+source_group( "Gui" FILES ${GUI_FILES})
+source_group( "App" FILES ${APP_FILES})
+source_group( "Widgets" FILES ${WIDGETS_FILES})
+source_group( "Core" FILES ${CORE_FILES})
+source_group( "Utils" FILES ${UTILS_FILES})
+source_group( "Common" FILES ${COMMON_FILES})
+
+target_sources( SystemCleaner PRIVATE
+	${GUI_FILES}
+	${APP_FILES}
+	${WIDGETS_FILES}
+	${CORE_FILES}
+	${UTILS_FILES}
+	${COMMON_FILES}
 )
 
 target_link_libraries(SystemCleaner PRIVATE
