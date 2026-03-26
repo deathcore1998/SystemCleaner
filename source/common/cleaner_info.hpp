@@ -29,7 +29,7 @@ namespace common
 
 	struct CleanOption
 	{
-		bool enabled = true;
+		bool enabled = false;
 		std::string displayName;
 		uint64_t id = IDGenerator::next();
 	};

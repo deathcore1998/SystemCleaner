@@ -2,6 +2,7 @@
 
 #include <GLFW/glfw3.h>
 #include <iostream>
+#include <windows.h>
 
 #define STB_IMAGE_IMPLEMENTATION
 #include <stb_image.h>
@@ -22,7 +23,21 @@ core::TextureManager::~TextureManager()
 void core::TextureManager::loadAllIcons()
 {
 	const utils::FileSystem& fs = utils::FileSystem::instance();
-	const fs::path iconsDir = fs.getProjectSourceDir() / "icons";
+
+	char buffer[ MAX_PATH ];
+	GetModuleFileNameA( NULL, buffer, MAX_PATH );
+	const fs::path exeDir = fs::path( buffer ).parent_path();
+
+	fs::path iconsDir;
+	if ( fs::exists( exeDir / "icons" ) )
+	{
+		iconsDir = exeDir / "icons";
+	}
+	else
+	{
+		iconsDir = fs.getProjectSourceDir() / "source/icons";
+	}
+
 
 	if ( !fs::exists( iconsDir ) || !fs::is_directory( iconsDir ) )
 	{
